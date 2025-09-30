@@ -1,70 +1,83 @@
 from flask import Flask, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
 
 app = Flask(__name__)
 
-items = [
-    {"id": 1, "name": "Aprender Flask"},
-    {"id": 2, "name": "Construir a primeira API"},
-    {"id": 3, "name": "Entender requisições HTTP"},
-]
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:SUA_SENHA_AQUI@localhost:5432/meu_primeiro_banco'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+
+class ItemModel(db.Model):
+    __tablename__ = 'items'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False)
+    
+    def __init__(self, name):
+        self.nome = name
+        
+    def to_json(self):
+        return {
+            "id": self.id,
+            "name": self.nome
+        }
+
+@app.cli.command("create-db")
+def create_tables():
+    
+    db.create_all()
+    print("Tabelas do banco de dados criados com sucesso.")
 
 @app.route('/items', methods=['GET'])
 def get_items():
 
-    return jsonify(items)
+    items = ItemModel.query.all()
+    return jsonify({item.to_json() for item in items})
 
 @app.route('/items/<int:item_id>', methods=['GET'])
 def get_item(item_id):
     
-    for item in items:
-        if item["id"] == item_id:
-    
-            return jsonify(item)
-    
-    
-    return jsonify({"message": "Item não encontrado"}), 404
-
-
+    item = ItemModel.query.get_or_404(item_id)
+    return jsonify(item.to_json())
 
 @app.route('/items', methods=['POST'])
 def add_item():
-    new_item_data = request.get_json()
+    data = request.get_json()
     
-    if not new_item_data or 'name' not in new_item_data:
+    if not data or 'name' not in data:
         return jsonify({"message": "Dados inválidos: 'name' é obrigatório"}), 400
-        
-    last_id = items[-1]["id"] if items else 0
-    new_id = last_id + 1
     
-    new_item = {"id": new_id, "name": new_item_data["name"]}
+    new_item = ItemModel(name=data["name"])
     
-    items.append(new_item)
+    db.session.add(new_item)
+    db.session.commit()
     
-    return jsonify(new_item), 201
+    return jsonify(new_item.to_json()), 201
 
+# ROTA: Update
 @app.route('/items/<int:item_id>', methods=['PUT'])
 def update_item(item_id):
-    update_data = request.get_json()
+    data = request.get_json()
     
-    if not update_data or 'name' not in update_data:
-        return jsonify({"message": "Dados inválidos: 'name' é obrigatório."}), 400
+    if not data or 'name' not in data:
+        return jsonify({"message": "Dados inválidos: 'name' é obrigatório"}), 400
     
-    for item in items:
-        if item["id"] == item_id:
-            item["name"] = update_data["name"]
-            return jsonify(item)
-    return jsonify({"message", "Item não encontrado"}), 404
+    item = ItemModel.query.get_or_404(item_id)
+    db.session.commit()
+    
+    return jsonify({item.to_json()})
 
+# Rota: DELETE
 @app.route('/items/<int:item_id>', methods=['DELETE'])
 def delete_items(item_id):
-    global items
-    initial_length = len(items)
-    items[:] = [item for item in items if item["id"] != item_id]
     
-    if len(items) < initial_length:
-        return '', 204
-    else:
-        return jsonify({"message": "Item não encontrado para deletar"}), 404
+    item = ItemModel.query.get_or_404(item_id)
+    
+    db.session.delete(item)
+    db.session.commit()
+    
+    return '', 404
 
 if __name__ == '__main__':
     app.run(debug=True)
